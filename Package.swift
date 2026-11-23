@@ -19,6 +19,8 @@ import PackageDescription
 ///   sample buffers, on FFmpeg's libavformat (`CFFmpegFormat`).
 /// - `MediaPlayback`: playing a file or stream, its pictures in step with
 ///   its sound, through an `AudioOutput`.
+/// - `MediaSDL`: an `AudioOutput` on SDL3's audio streams, from
+///   PureSwift/SDL, as Cacao uses.
 let package = Package(
     name: "Media",
     platforms: [
@@ -36,6 +38,10 @@ let package = Package(
         .library(name: "AudioCodec", targets: ["AudioCodec"]),
         .library(name: "MediaFiles", targets: ["MediaFiles"]),
         .library(name: "MediaPlayback", targets: ["MediaPlayback"]),
+        .library(name: "MediaSDL", targets: ["MediaSDL"]),
+    ],
+    dependencies: [
+        .package(url: "https://github.com/PureSwift/SDL.git", branch: "master"),
     ],
     targets: [
         .target(name: "MediaCore"),
@@ -62,11 +68,14 @@ let package = Package(
         ),
         .target(name: "MediaFiles", dependencies: ["MediaCore", "CFFmpegFormat"]),
         .target(name: "MediaPlayback", dependencies: ["MediaCore", "MediaFiles", "VideoCodec", "AudioCodec"]),
+        // SDL3's C API, from PureSwift/SDL's `CSDL3`, which `SDL3Swift` brings.
+        .target(name: "MediaSDL", dependencies: ["MediaCore", "MediaPlayback", .product(name: "SDL3Swift", package: "SDL")]),
         .testTarget(name: "MediaCoreTests", dependencies: ["MediaCore"]),
         .testTarget(name: "PixelBuffersTests", dependencies: ["PixelBuffers"]),
         .testTarget(name: "VideoCodecTests", dependencies: ["VideoCodec"]),
         .testTarget(name: "AudioCodecTests", dependencies: ["AudioCodec"]),
         .testTarget(name: "MediaFilesTests", dependencies: ["MediaFiles", "VideoCodec"]),
+        .testTarget(name: "MediaSDLTests", dependencies: ["MediaSDL", "MediaPlayback", "MediaFiles"]),
         .testTarget(name: "MediaPlaybackTests", dependencies: ["MediaPlayback", "MediaFiles", "VideoCodec", "AudioCodec", "PixelBuffers"]),
     ]
 )

@@ -160,6 +160,18 @@ import Testing
         #expect(frames >= 24_000 - 64 && frames <= 24_000 + 3 * 1024)
     }
 
+    @Test func convertsLinearPCM() throws {
+        // Two frames of 24-bit big-endian stereo: 1/2 and -1/2 full scale.
+        let format = AudioFormat.linearPCM(sampleRate: 8000, channelLayout: .stereo,
+                                           layout: PCMLayout(sampleType: .signedInteger, bitsPerSample: 24, isBigEndian: true))
+        let decoder = try AudioDecoder(format: format, options: AudioDecoder.Options(layout: .int16))
+        let decoded = try decoder.decode(SampleBuffer(
+            content: .data(BlockBuffer(bytes: [0x40, 0, 0, 0x40, 0, 0, 0xC0, 0, 0, 0xC0, 0, 0])), format: .audio(format),
+            timing: SampleTiming(presentationTime: .zero), sampleCount: 2, flags: .sync
+        )) + decoder.finish()
+        #expect(decoded.flatMap { $0.data?.bytes ?? [] } == [0, 0x40, 0, 0x40, 0, 0xC0, 0, 0xC0])
+    }
+
     @Test func refusesWhatItCantDo() throws {
         #expect(throws: AudioCodecError.unsupportedCodec("zzzz")) {
             try AudioDecoder(format: AudioFormat(codec: "zzzz", sampleRate: 48000, channelLayout: .stereo))
