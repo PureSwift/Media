@@ -1,0 +1,6 @@
+module CFFmpegResample [system] {
+    header "shim.h"
+    link "swresample"
+    link "avutil"
+    export *
+}

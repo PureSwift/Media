@@ -8,6 +8,7 @@ any platform Swift does.
 | `MediaCore` | Media time and time ranges, media and codec types, color, format descriptions, and sample buffers: the values the other targets pass around. No dependencies. |
 | `PixelBuffers` | Pictures in memory or in GPU buffers shared as dma-bufs, in packed and planar formats (BGRA, RGBA, NV12, I420, P010, gray), with their color, and pools that reuse them. |
 | `VideoCodec` | Decoding coded video (H.264, HEVC, AV1, VP8, VP9, MPEG-4, JPEG, ProRes) to pixel buffers, and encoding pixel buffers, on FFmpeg's libavcodec. |
+| `AudioCodec` | Decoding coded audio (AAC, Opus, MP3, FLAC, Vorbis, AC-3, E-AC-3, ALAC) to linear PCM in any layout, rate and channels, and encoding PCM, on libavcodec and libswresample. |
 | `MediaFiles` | Reading tracks of sample buffers from files and streams (MP4, MOV, Matroska and WebM, MPEG-TS, HLS, Ogg, WAV…), seeking, and writing them to files, on FFmpeg's libavformat. |
 
 Coming next: playback with audio on SDL3, and a player view for Cacao.
@@ -62,6 +63,26 @@ and freed when the pixel buffer goes; its color and timing come with it.
 samples in decode order, with a `format` that holds the codec's
 configuration record, as a file's track needs.
 
+## AudioCodec
+
+```swift
+let decoder = try AudioDecoder(format: track.format,   // with its magic cookie
+                               options: .init(layout: .float32, sampleRate: 48000))
+for sample in samples {
+    for pcm in try decoder.decode(sample) {            // sampleCount frames each
+        play(pcm.data!, at: pcm.presentationTime)
+    }
+}
+
+let encoder = try AudioEncoder(settings: .init(codec: .aac, sampleRate: 48000, channelLayout: .stereo))
+let packets = try encoder.encode(pcm) + encoder.finish()
+```
+
+The decoder gives PCM converted by libswresample to the layout, rate and
+channels asked for, or the audio's own. The encoder takes PCM in buffers of
+any size and layout, and cuts it into the codec's frames; its `format` holds
+the magic cookie a file's track needs.
+
 ## MediaFiles
 
 ```swift
@@ -93,8 +114,9 @@ swift test
 ```
 
 `VideoCodec` needs FFmpeg's libavcodec and libavutil (7 or later) where
-pkg-config finds them, and `MediaFiles` libavformat too: `apt install
-libavcodec-dev libavformat-dev libavutil-dev` on Debian and Ubuntu, `brew install ffmpeg` on macOS. Without root, Debian's packages
+pkg-config finds them, `MediaFiles` libavformat too, and `AudioCodec`
+libswresample: `apt install libavcodec-dev libavformat-dev libavutil-dev
+libswresample-dev` on Debian and Ubuntu, `brew install ffmpeg` on macOS. Without root, Debian's packages
 can be unpacked instead (`apt-get download libavcodec-dev libavformat-dev
 libavutil-dev libswresample-dev`, then `dpkg -x` each), with `PKG_CONFIG_PATH` set to their
 `pkgconfig` folder and its paths pointed there.
