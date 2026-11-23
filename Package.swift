@@ -17,6 +17,8 @@ import PackageDescription
 /// - `MediaFiles`: reading and writing media files and streams (MP4,
 ///   Matroska, WebM, MPEG-TS, HLS, and the rest FFmpeg knows) as tracks of
 ///   sample buffers, on FFmpeg's libavformat (`CFFmpegFormat`).
+/// - `MediaPlayback`: playing a file or stream, its pictures in step with
+///   its sound, through an `AudioOutput`.
 let package = Package(
     name: "Media",
     platforms: [
@@ -33,6 +35,7 @@ let package = Package(
         .library(name: "VideoCodec", targets: ["VideoCodec"]),
         .library(name: "AudioCodec", targets: ["AudioCodec"]),
         .library(name: "MediaFiles", targets: ["MediaFiles"]),
+        .library(name: "MediaPlayback", targets: ["MediaPlayback"]),
     ],
     targets: [
         .target(name: "MediaCore"),
@@ -58,10 +61,12 @@ let package = Package(
             providers: [.apt(["libavformat-dev"]), .brew(["ffmpeg"])]
         ),
         .target(name: "MediaFiles", dependencies: ["MediaCore", "CFFmpegFormat"]),
+        .target(name: "MediaPlayback", dependencies: ["MediaCore", "MediaFiles", "VideoCodec", "AudioCodec"]),
         .testTarget(name: "MediaCoreTests", dependencies: ["MediaCore"]),
         .testTarget(name: "PixelBuffersTests", dependencies: ["PixelBuffers"]),
         .testTarget(name: "VideoCodecTests", dependencies: ["VideoCodec"]),
         .testTarget(name: "AudioCodecTests", dependencies: ["AudioCodec"]),
         .testTarget(name: "MediaFilesTests", dependencies: ["MediaFiles", "VideoCodec"]),
+        .testTarget(name: "MediaPlaybackTests", dependencies: ["MediaPlayback", "MediaFiles", "VideoCodec", "AudioCodec", "PixelBuffers"]),
     ]
 )

@@ -10,8 +10,9 @@ any platform Swift does.
 | `VideoCodec` | Decoding coded video (H.264, HEVC, AV1, VP8, VP9, MPEG-4, JPEG, ProRes) to pixel buffers, and encoding pixel buffers, on FFmpeg's libavcodec. |
 | `AudioCodec` | Decoding coded audio (AAC, Opus, MP3, FLAC, Vorbis, AC-3, E-AC-3, ALAC) to linear PCM in any layout, rate and channels, and encoding PCM, on libavcodec and libswresample. |
 | `MediaFiles` | Reading tracks of sample buffers from files and streams (MP4, MOV, Matroska and WebM, MPEG-TS, HLS, Ogg, WAV…), seeking, and writing them to files, on FFmpeg's libavformat. |
+| `MediaPlayback` | Playing a file or stream: its pictures in step with its sound, following the sound's output, or the host's clock without one, with pausing and seeking. |
 
-Coming next: playback with audio on SDL3, and a player view for Cacao.
+Coming next: an SDL3 audio output, and a player view for Cacao.
 
 ## MediaCore
 
@@ -102,6 +103,23 @@ try writer.finish()
 
 A sample read is libavformat's packet, wrapped, not copied. A sample written
 is copied, and libavformat interleaves the tracks.
+
+## MediaPlayback
+
+```swift
+let player = try Player(url: "movie.mkv", audioOutput: output)  // any AudioOutput
+player.play()
+// For each frame drawn:
+if let picture = try player.update()?.image as? PixelBuffer {
+    draw(picture)
+}
+player.seek(to: MediaTime(value: 30, timescale: 1))
+```
+
+`update` reads and decodes as far as playback needs, keeps half a second of
+sound queued, and returns the latest picture due. Time follows the sound the
+output reports played, or the host's clock when there's no sound, or once
+it ends.
 
 ## Building
 
