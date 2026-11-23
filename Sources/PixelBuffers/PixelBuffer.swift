@@ -68,6 +68,9 @@ public final class PixelBuffer: MediaImage, @unchecked Sendable {
     /// The pool it goes back to.
     let pool: PixelBufferPool?
 
+    /// For a shared GPU buffer, what lets go of what else keeps it.
+    private let release: (@Sendable () -> Void)?
+
     // MARK: Making
 
     /// A buffer of black pixels in memory: each row aligned to
@@ -100,8 +103,16 @@ public final class PixelBuffer: MediaImage, @unchecked Sendable {
     }
 
     /// A shared GPU buffer's pixels, which this buffer now owns: its file
-    /// descriptors are closed when it goes.
-    public init(width: Int, height: Int, format: PixelFormat, color: ColorInfo = ColorInfo(), dmaBuffer: DMABuffer) {
+    /// descriptors are closed when it goes, and then `release` is called,
+    /// for what else keeps the buffer, such as a decoder's frame.
+    public init(
+        width: Int,
+        height: Int,
+        format: PixelFormat,
+        color: ColorInfo = ColorInfo(),
+        dmaBuffer: DMABuffer,
+        release: (@Sendable () -> Void)? = nil
+    ) {
         precondition(dmaBuffer.planes.count == format.planes.count, "\(format) has \(format.planes.count) planes")
         self.width = width
         self.height = height
@@ -114,6 +125,7 @@ public final class PixelBuffer: MediaImage, @unchecked Sendable {
         self.backing = .dmaBuffer(dmaBuffer)
         self.storage = nil
         self.pool = nil
+        self.release = release
     }
 
     init(width: Int, height: Int, format: PixelFormat, color: ColorInfo, planes: [Plane], storage: PixelStorage, pool: PixelBufferPool?) {
@@ -125,11 +137,13 @@ public final class PixelBuffer: MediaImage, @unchecked Sendable {
         self.backing = .memory
         self.storage = storage
         self.pool = pool
+        self.release = nil
     }
 
     deinit {
         if case .dmaBuffer(let buffer) = backing {
             buffer.closeFileDescriptors()
+            release?()
         } else if let pool, let storage {
             pool.recycle(storage)
         }

@@ -64,6 +64,17 @@ and freed when the pixel buffer goes; its color and timing come with it.
 samples in decode order, with a `format` that holds the codec's
 configuration record, as a file's track needs.
 
+On Linux, a decoder decodes on VA-API where the GPU can, and in software
+where it can't:
+
+```swift
+let decoder = try VideoDecoder(format: format, options: .init(hardware: .vaapi(), exportsDMABuffers: true))
+```
+
+Its pictures are then NV12 (or P010) in the GPU's own dma-bufs, to show
+without copying, holding their surface until they go; without
+`exportsDMABuffers`, they're copied into memory.
+
 `PixelConverter` makes a picture again in another format or size, with the
 picture's own matrix and range: a decoder's YUV as the BGRA a view shows.
 

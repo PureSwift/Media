@@ -1,6 +1,13 @@
 import CFFmpeg
 import MediaCore
 import PixelBuffers
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(Darwin)
+import Darwin
+#endif
 
 /// Decodes coded video, such as H.264 or HEVC, to pictures, on libavcodec.
 ///
@@ -20,10 +27,33 @@ public final class VideoDecoder {
         /// Threads to decode with: 0 lets libavcodec choose.
         public var threadCount: Int
 
-        public init(threadCount: Int = 0) {
+        /// The device to decode on, when the codec can; libavcodec decodes
+        /// in software when it can't, or there's no device.
+        public var hardware: Hardware
+
+        /// Whether hardware frames come as the dma-bufs they're in, to show
+        /// without copying, or are copied into memory.
+        public var exportsDMABuffers: Bool
+
+        public init(threadCount: Int = 0, hardware: Hardware = .none, exportsDMABuffers: Bool = false) {
             self.threadCount = threadCount
+            self.hardware = hardware
+            self.exportsDMABuffers = exportsDMABuffers
         }
     }
+
+    /// Hardware a decoder decodes on.
+    public enum Hardware: Hashable, Sendable {
+        case none
+        /// VA-API, on a DRM render node: Intel and AMD GPUs, and others
+        /// with a VA-API driver.
+        case vaapi(device: String = "/dev/dri/renderD128")
+    }
+
+    /// Whether the last picture was decoded on the hardware asked for:
+    /// false when the codec, or the profile, can't be, or the device
+    /// couldn't be opened, and libavcodec decodes in software.
+    public private(set) var isHardwareAccelerated = false
 
     /// The video it decodes.
     public let format: VideoFormat
@@ -78,6 +108,17 @@ public final class VideoDecoder {
         context.pointee.height = Int32(clamping: format.height)
         context.pointee.thread_count = Int32(clamping: options.threadCount)
         context.pointee.pkt_timebase = AVRational(num: 1, den: timescale)
+        if case .vaapi(let device) = options.hardware, cffmpeg_codec_has_vaapi(codec) != 0 {
+            var hardware: UnsafeMutablePointer<AVBufferRef>?
+            if av_hwdevice_ctx_create(&hardware, AV_HWDEVICE_TYPE_VAAPI, device, nil, 0) >= 0 {
+                // The context takes the device's reference.
+                context.pointee.hw_device_ctx = hardware
+                cffmpeg_context_prefer_vaapi(context)
+                // Pictures shown from their surfaces hold them: spares, so
+                // a viewer can keep a few without stalling the decoder.
+                if options.exportsDMABuffers { context.pointee.extra_hw_frames = 8 }
+            }
+        }
         if !format.configuration.isEmpty {
             // libavcodec reads past the end: the padding is zeroed.
             let size = format.configuration.count
@@ -163,8 +204,26 @@ public final class VideoDecoder {
         }
     }
 
-    /// A decoded frame as a sample buffer over a reference to its pixels.
+    /// A decoded frame as a sample buffer over a reference to its pixels:
+    /// for a hardware frame, its dma-bufs, or a copy in memory.
     private func picture(from frame: UnsafeMutablePointer<AVFrame>) throws -> SampleBuffer {
+        isHardwareAccelerated = frame.pointee.format == AV_PIX_FMT_VAAPI.rawValue
+        guard isHardwareAccelerated else {
+            return sample(of: try pixelsInMemory(frame), from: frame)
+        }
+        if options.exportsDMABuffers {
+            return sample(of: try pixelsInDMABuffers(frame), from: frame)
+        }
+        guard let memory = av_frame_alloc() else { throw VideoCodecError.ffmpeg(cffmpeg_error_again()) }
+        var owned: UnsafeMutablePointer<AVFrame>? = memory
+        defer { av_frame_free(&owned) }
+        try check(av_hwframe_transfer_data(memory, frame, 0))
+        try check(av_frame_copy_props(memory, frame))
+        return sample(of: try pixelsInMemory(memory), from: frame)
+    }
+
+    /// A frame in memory, its planes referenced, not copied.
+    private func pixelsInMemory(_ frame: UnsafeMutablePointer<AVFrame>) throws -> PixelBuffer {
         let ffmpegFormat = AVPixelFormat(rawValue: frame.pointee.format)
         guard let pixelFormat = PixelFormat(ffmpeg: ffmpegFormat) else {
             throw VideoCodecError.unsupportedPixelFormat(name(of: ffmpegFormat))
@@ -191,7 +250,7 @@ public final class VideoDecoder {
             release()
             throw VideoCodecError.unsupportedPixelFormat(name(of: ffmpegFormat))
         }
-        let pixels = PixelBuffer(
+        return PixelBuffer(
             width: Int(reference.pointee.width),
             height: Int(reference.pointee.height),
             format: pixelFormat,
@@ -199,16 +258,70 @@ public final class VideoDecoder {
             planesNoCopy: planes,
             release: release
         )
-        let timestamp = reference.pointee.best_effort_timestamp != cffmpeg_no_timestamp()
-            ? reference.pointee.best_effort_timestamp : reference.pointee.pts
-        let duration = reference.pointee.duration > 0 ? MediaTime(value: reference.pointee.duration, timescale: timescale) : .invalid
+    }
+
+    /// A hardware frame as the dma-bufs it's in. The mapping holds the
+    /// frame's surface, so the decoder doesn't draw into it again until the
+    /// pixel buffer goes.
+    private func pixelsInDMABuffers(_ frame: UnsafeMutablePointer<AVFrame>) throws -> PixelBuffer {
+        guard let mapped = av_frame_alloc() else { throw VideoCodecError.ffmpeg(cffmpeg_error_again()) }
+        let address = UInt(bitPattern: mapped)
+        let release: @Sendable () -> Void = {
+            var frame = UnsafeMutablePointer<AVFrame>(bitPattern: address)
+            av_frame_free(&frame)
+        }
+        mapped.pointee.format = AV_PIX_FMT_DRM_PRIME.rawValue
+        let result = av_hwframe_map(mapped, frame, cffmpeg_hwframe_map_read())
+        guard result >= 0, let descriptor = cffmpeg_drm_descriptor(mapped) else {
+            release()
+            throw VideoCodecError.ffmpeg(result < 0 ? result : cffmpeg_error_again())
+        }
+        var planes: [DMABuffer.Plane] = []
+        var tenBit = false
+        for layer in 0..<cffmpeg_drm_layer_count(descriptor) {
+            let fourCC = FourCharacterCode(rawValue: cffmpeg_drm_layer_format(descriptor, layer).byteSwapped)
+            // VA-API exports NV12 as one layer, or as R8 and GR88; P010 as
+            // P010, or R16 and GR1616.
+            if fourCC == "P010" || fourCC == "R16 " { tenBit = true }
+            for plane in 0..<cffmpeg_drm_plane_count(descriptor, layer) {
+                planes.append(DMABuffer.Plane(
+                    fileDescriptor: cffmpeg_drm_plane_fd(descriptor, layer, plane),
+                    offset: Int(cffmpeg_drm_plane_offset(descriptor, layer, plane)),
+                    bytesPerRow: Int(cffmpeg_drm_plane_pitch(descriptor, layer, plane))
+                ))
+            }
+        }
+        let pixelFormat: PixelFormat = tenBit ? .p010 : .nv12
+        guard planes.count == pixelFormat.planes.count else {
+            release()
+            throw VideoCodecError.unsupportedPixelFormat("\(planes.count) planes from VA-API")
+        }
+        // The pixel buffer closes its own descriptors; the mapping keeps its.
+        for index in planes.indices {
+            planes[index].fileDescriptor = dup(planes[index].fileDescriptor)
+        }
+        return PixelBuffer(
+            width: Int(frame.pointee.width),
+            height: Int(frame.pointee.height),
+            format: pixelFormat,
+            color: ColorInfo(frame: frame),
+            dmaBuffer: DMABuffer(planes: planes, modifier: cffmpeg_drm_modifier(descriptor)),
+            release: release
+        )
+    }
+
+    /// A picture's sample buffer, timed and flagged as its frame.
+    private func sample(of pixels: PixelBuffer, from frame: UnsafeMutablePointer<AVFrame>) -> SampleBuffer {
+        let timestamp = frame.pointee.best_effort_timestamp != cffmpeg_no_timestamp()
+            ? frame.pointee.best_effort_timestamp : frame.pointee.pts
+        let duration = frame.pointee.duration > 0 ? MediaTime(value: frame.pointee.duration, timescale: timescale) : .invalid
         var pictureFormat = format
         (pictureFormat.width, pictureFormat.height, pictureFormat.color) = (pixels.width, pixels.height, pixels.color)
         return SampleBuffer(
             image: pixels,
             format: .video(pictureFormat),
             timing: SampleTiming(presentationTime: MediaTime(timestamp: timestamp, timescale: timescale), duration: duration),
-            flags: cffmpeg_frame_is_key(reference) != 0 ? .sync : []
+            flags: cffmpeg_frame_is_key(frame) != 0 ? .sync : []
         )
     }
 }
