@@ -22,6 +22,9 @@ import PackageDescription
 ///   its sound, through an `AudioOutput`.
 /// - `MediaSDL`: an `AudioOutput` on SDL3's audio streams, from
 ///   PureSwift/SDL, as Cacao uses.
+/// - `CoreMedia`, `AVFoundation` and `AVKit` (Linux only): the parts of
+///   Apple's that play media (`CMTime`, `AVPlayer`, `VideoPlayer`), so
+///   sources that import them compile, with the view on PureSwift/Cacao.
 let package = Package(
     name: "Media",
     platforms: [
@@ -40,10 +43,10 @@ let package = Package(
         .library(name: "MediaFiles", targets: ["MediaFiles"]),
         .library(name: "MediaPlayback", targets: ["MediaPlayback"]),
         .library(name: "MediaSDL", targets: ["MediaSDL"]),
-    ],
+    ] + appleProducts,
     dependencies: [
         .package(url: "https://github.com/PureSwift/SDL.git", branch: "master"),
-    ],
+    ] + appleDependencies,
     targets: [
         .target(name: "MediaCore"),
         .target(name: "PixelBuffers", dependencies: ["MediaCore"]),
@@ -84,5 +87,62 @@ let package = Package(
         .testTarget(name: "MediaFilesTests", dependencies: ["MediaFiles", "VideoCodec"]),
         .testTarget(name: "MediaSDLTests", dependencies: ["MediaSDL", "MediaPlayback", "MediaFiles"]),
         .testTarget(name: "MediaPlaybackTests", dependencies: ["MediaPlayback", "MediaFiles", "VideoCodec", "AudioCodec", "PixelBuffers"]),
-    ]
+    ] + appleTargets
 )
+
+// MARK: - CoreMedia, AVFoundation and AVKit
+
+// On Linux, `CoreMedia`, `AVFoundation` and `AVKit` modules play media with
+// this package, shown by PureSwift/Cacao's SwiftUI, so sources that import
+// them compile. On Apple's platforms they would clash with Apple's. Cacao
+// needs Swift 6.4.
+#if os(Linux)
+var appleDependencies: [Package.Dependency] {
+    [
+        .package(url: "https://github.com/PureSwift/Cacao.git", branch: "develop"),
+    ]
+}
+var appleProducts: [Product] {
+    [
+        .library(name: "CoreMedia", targets: ["CoreMedia"]),
+        .library(name: "AVFoundation", targets: ["AVFoundation"]),
+        .library(name: "AVKit", targets: ["AVKit"]),
+    ]
+}
+var appleTargets: [Target] {
+    [
+        // `CMTime` and `CMTimeRange`.
+        .target(name: "CoreMedia", dependencies: ["MediaCore"]),
+        // `AVPlayer`, which decodes on a thread of its own and publishes
+        // pictures to one of Cacao's external surfaces.
+        .target(
+            name: "AVFoundation",
+            dependencies: [
+                "CoreMedia", "MediaCore", "PixelBuffers", "VideoCodec", "MediaPlayback", "MediaSDL",
+                .product(name: "CacaoRender", package: "Cacao"),
+            ]
+        ),
+        // `VideoPlayer`, the view that shows a player's surface.
+        .target(
+            name: "AVKit",
+            dependencies: [
+                "AVFoundation",
+                .product(name: "Cacao", package: "Cacao"),
+                .product(name: "CacaoRender", package: "Cacao"),
+            ]
+        ),
+        .testTarget(
+            name: "AVFoundationTests",
+            dependencies: [
+                "CoreMedia", "AVFoundation", "AVKit", "MediaCore", "PixelBuffers", "VideoCodec", "MediaFiles",
+                .product(name: "CacaoRender", package: "Cacao"),
+                .product(name: "Cacao", package: "Cacao"),
+            ]
+        ),
+    ]
+}
+#else
+var appleDependencies: [Package.Dependency] { [] }
+var appleProducts: [Product] { [] }
+var appleTargets: [Target] { [] }
+#endif
