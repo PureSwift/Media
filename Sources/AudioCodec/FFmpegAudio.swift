@@ -21,6 +21,31 @@ extension CodecType {
     }
 }
 
+extension AudioFormat {
+
+    /// libavcodec's decoder for this audio: its codec's, or for linear PCM,
+    /// the one for its layout, interleaved.
+    var decoderCodecID: AVCodecID? {
+        guard codec == .linearPCM else { return codec.audioCodecID }
+        guard let pcm, pcm.isInterleaved || channelCount == 1 else { return nil }
+        return switch (pcm.sampleType, pcm.bitsPerSample, pcm.isBigEndian) {
+        case (.unsignedInteger, 8, _): AV_CODEC_ID_PCM_U8
+        case (.signedInteger, 8, _): AV_CODEC_ID_PCM_S8
+        case (.signedInteger, 16, false): AV_CODEC_ID_PCM_S16LE
+        case (.signedInteger, 16, true): AV_CODEC_ID_PCM_S16BE
+        case (.signedInteger, 24, false): AV_CODEC_ID_PCM_S24LE
+        case (.signedInteger, 24, true): AV_CODEC_ID_PCM_S24BE
+        case (.signedInteger, 32, false): AV_CODEC_ID_PCM_S32LE
+        case (.signedInteger, 32, true): AV_CODEC_ID_PCM_S32BE
+        case (.float, 32, false): AV_CODEC_ID_PCM_F32LE
+        case (.float, 32, true): AV_CODEC_ID_PCM_F32BE
+        case (.float, 64, false): AV_CODEC_ID_PCM_F64LE
+        case (.float, 64, true): AV_CODEC_ID_PCM_F64BE
+        default: nil
+        }
+    }
+}
+
 extension PCMLayout {
 
     /// libavutil's sample format for this layout; nil for 24-bit and
