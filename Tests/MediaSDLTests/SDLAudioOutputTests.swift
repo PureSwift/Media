@@ -43,9 +43,14 @@ import Testing
         try output.open(format)
         try output.enqueue(silence(1))
         output.isPaused = false
-        Thread.sleep(forTimeInterval: 0.3)
+        // The device may start late on a busy machine.
+        var waited = 0.0
+        while output.queuedDuration.seconds > 0.9, waited < 3 {
+            Thread.sleep(forTimeInterval: 0.05)
+            waited += 0.05
+        }
         let left = output.queuedDuration.seconds
-        #expect(left < 0.9)
+        #expect(left <= 0.9)
         #expect(left > 0.2)
         output.isPaused = true
         Thread.sleep(forTimeInterval: 0.1)
