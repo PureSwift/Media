@@ -7,7 +7,7 @@ any platform Swift does.
 | --- | --- |
 | `MediaCore` | Media time and time ranges, media and codec types, color, format descriptions, and sample buffers: the values the other targets pass around. No dependencies. |
 | `PixelBuffers` | Pictures in memory or in GPU buffers shared as dma-bufs, in packed and planar formats (BGRA, RGBA, NV12, I420, P010, gray), with their color, and pools that reuse them. |
-| `VideoCodec` | Decoding coded video (H.264, HEVC, AV1, VP8, VP9, MPEG-4, JPEG, ProRes) to pixel buffers, and encoding pixel buffers, on FFmpeg's libavcodec. |
+| `VideoCodec` | Decoding coded video (H.264, HEVC, AV1, VP8, VP9, MPEG-4, JPEG, ProRes) to pixel buffers, and encoding pixel buffers, on FFmpeg's libavcodec; converting pictures between formats and sizes, on libswscale. |
 | `AudioCodec` | Decoding coded audio (AAC, Opus, MP3, FLAC, Vorbis, AC-3, E-AC-3, ALAC) to linear PCM in any layout, rate and channels, and encoding PCM, on libavcodec and libswresample. |
 | `MediaFiles` | Reading tracks of sample buffers from files and streams (MP4, MOV, Matroska and WebM, MPEG-TS, HLS, Ogg, WAV…), seeking, and writing them to files, on FFmpeg's libavformat. |
 | `MediaPlayback` | Playing a file or stream: its pictures in step with its sound, following the sound's output, or the host's clock without one, with pausing and seeking. |
@@ -64,6 +64,14 @@ and freed when the pixel buffer goes; its color and timing come with it.
 `VideoEncoder` takes pixel buffers in presentation order and gives coded
 samples in decode order, with a `format` that holds the codec's
 configuration record, as a file's track needs.
+
+`PixelConverter` makes a picture again in another format or size, with the
+picture's own matrix and range: a decoder's YUV as the BGRA a view shows.
+
+```swift
+let converter = try PixelConverter(to: .bgra8)          // or width:height: to scale
+let shown = try converter.convert(picture)              // from a pool
+```
 
 ## AudioCodec
 
@@ -132,10 +140,10 @@ swift build
 swift test
 ```
 
-`VideoCodec` needs FFmpeg's libavcodec and libavutil (7 or later) where
-pkg-config finds them, `MediaFiles` libavformat too, `AudioCodec`
+`VideoCodec` needs FFmpeg's libavcodec, libavutil and libswscale (7 or later)
+where pkg-config finds them, `MediaFiles` libavformat too, `AudioCodec`
 libswresample, and `MediaSDL` SDL 3: `apt install libavcodec-dev libavformat-dev libavutil-dev
-libswresample-dev libsdl3-dev` on Debian and Ubuntu (SDL 3.2 or later),
+libswscale-dev libswresample-dev libsdl3-dev` on Debian and Ubuntu (SDL 3.2 or later),
 `brew install ffmpeg sdl3` on macOS. Without root, Debian's packages
 can be unpacked instead (`apt-get download libavcodec-dev libavformat-dev
 libavutil-dev libswresample-dev`, then `dpkg -x` each), with `PKG_CONFIG_PATH` set to their
