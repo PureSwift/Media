@@ -11,7 +11,8 @@ import PackageDescription
 ///   and planar pixel formats, with their color, and pools that reuse them.
 ///   Depends on `MediaCore` only.
 /// - `VideoCodec`: decoding coded video to pixel buffers and encoding pixel
-///   buffers, on FFmpeg's libavcodec (`CFFmpeg`).
+///   buffers, on FFmpeg's libavcodec (`CFFmpeg`), and converting them between
+///   formats and sizes, on libswscale (`CFFmpegScale`).
 /// - `AudioCodec`: decoding coded audio to linear PCM and encoding PCM, on
 ///   libavcodec, converted by libswresample (`CFFmpegResample`).
 /// - `MediaFiles`: reading and writing media files and streams (MP4,
@@ -52,7 +53,13 @@ let package = Package(
             pkgConfig: "libavcodec",
             providers: [.apt(["libavcodec-dev", "libavutil-dev"]), .brew(["ffmpeg"])]
         ),
-        .target(name: "VideoCodec", dependencies: ["MediaCore", "PixelBuffers", "CFFmpeg"]),
+        // FFmpeg's libswscale, from the system.
+        .systemLibrary(
+            name: "CFFmpegScale",
+            pkgConfig: "libswscale",
+            providers: [.apt(["libswscale-dev"]), .brew(["ffmpeg"])]
+        ),
+        .target(name: "VideoCodec", dependencies: ["MediaCore", "PixelBuffers", "CFFmpeg", "CFFmpegScale"]),
         // FFmpeg's libswresample, from the system.
         .systemLibrary(
             name: "CFFmpegResample",

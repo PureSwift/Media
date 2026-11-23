@@ -1,0 +1,6 @@
+module CFFmpegScale [system] {
+    header "shim.h"
+    link "swscale"
+    link "avutil"
+    export *
+}
