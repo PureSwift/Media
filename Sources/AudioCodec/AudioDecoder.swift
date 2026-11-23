@@ -4,6 +4,8 @@ import MediaCore
 
 /// Decodes coded audio, such as AAC or Opus, to linear PCM, on libavcodec,
 /// converted by libswresample to the layout, rate and channels asked for.
+/// Linear PCM decodes too, in any interleaved layout, 24-bit and
+/// big-endian included, which converts it.
 ///
 /// Give it a track's samples in decode order; each `decode` returns the PCM
 /// that became ready, as sample buffers of `sampleCount` frames each. After
@@ -58,7 +60,7 @@ public final class AudioDecoder {
 
     /// A decoder for `format`'s codec, which starts from its magic cookie.
     public init(format: AudioFormat, options: Options = Options()) throws {
-        guard let id = format.codec.audioCodecID, let codec = avcodec_find_decoder(id) else {
+        guard let id = format.decoderCodecID, let codec = avcodec_find_decoder(id) else {
             throw AudioCodecError.unsupportedCodec(format.codec)
         }
         guard let outputSampleFormat = options.layout.sampleFormat else {
