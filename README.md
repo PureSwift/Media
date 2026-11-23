@@ -12,8 +12,7 @@ any platform Swift does.
 | `MediaFiles` | Reading tracks of sample buffers from files and streams (MP4, MOV, Matroska and WebM, MPEG-TS, HLS, Ogg, WAV…), seeking, and writing them to files, on FFmpeg's libavformat. |
 | `MediaPlayback` | Playing a file or stream: its pictures in step with its sound, following the sound's output, or the host's clock without one, with pausing and seeking. |
 | `MediaSDL` | `SDLAudioOutput`: a player's sound through SDL3's audio streams, from PureSwift/SDL, as Cacao uses. |
-
-Coming next: a player view for Cacao.
+| `CoreMedia`, `AVFoundation`, `AVKit` (Linux only) | The parts of Apple's that play media: `CMTime`, `AVPlayer` and `AVPlayerItem`, and the `VideoPlayer` view for [Cacao](https://github.com/PureSwift/Cacao)'s SwiftUI, so sources that import them compile. |
 
 ## MediaCore
 
@@ -130,6 +129,35 @@ sound queued, and returns the latest picture due. Time follows the sound the
 output reports played, or the host's clock when there's no sound, or once
 it ends.
 
+## AVKit
+
+On Linux, sources written against Apple's AVKit compile, and show a player's
+pictures in a Cacao app:
+
+```swift
+import AVKit
+import SwiftUI
+
+struct Movie: View {
+
+    @State private var player = AVPlayer(url: URL(fileURLWithPath: "movie.mp4"))
+
+    var body: some View {
+        VideoPlayer(player: player)
+            .onAppear { player.play() }
+    }
+}
+```
+
+`AVPlayer` opens and decodes its item on a thread of its own, converts each
+picture to BGRA and publishes it to one of Cacao's external surfaces; its
+sound goes to SDL's default playback device. `VideoPlayer` fits the pictures
+to the view, with a play and pause button, the time and a scrubber.
+
+Unlike Apple's, there is no key-value observing (use a periodic time observer
+and the item's `didPlayToEndTimeNotification`), an item plays at its own rate
+only, seeks are always exact, and `play` at an item's end starts it again.
+
 ## Building
 
 Swift 6.0 or later. On Apple platforms, macOS 15, iOS 18, tvOS 18, watchOS 11
@@ -139,6 +167,10 @@ or visionOS 2, for the standard library's `Mutex`.
 swift build
 swift test
 ```
+
+On Linux, the package also takes [Cacao](https://github.com/PureSwift/Cacao),
+for `AVFoundation` and `AVKit`, which needs Swift 6.4 and Cairo, fontconfig
+and FreeType (`libcairo2-dev libfontconfig-dev libfreetype-dev`).
 
 `VideoCodec` needs FFmpeg's libavcodec, libavutil and libswscale (7 or later)
 where pkg-config finds them, `MediaFiles` libavformat too, `AudioCodec`
