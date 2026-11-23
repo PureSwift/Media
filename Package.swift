@@ -10,6 +10,8 @@ import PackageDescription
 /// - `PixelBuffers`: images in memory or in shared GPU buffers, in packed
 ///   and planar pixel formats, with their color, and pools that reuse them.
 ///   Depends on `MediaCore` only.
+/// - `VideoCodec`: decoding coded video to pixel buffers and encoding pixel
+///   buffers, on FFmpeg's libavcodec (`CFFmpeg`).
 let package = Package(
     name: "Media",
     platforms: [
@@ -23,11 +25,20 @@ let package = Package(
     products: [
         .library(name: "MediaCore", targets: ["MediaCore"]),
         .library(name: "PixelBuffers", targets: ["PixelBuffers"]),
+        .library(name: "VideoCodec", targets: ["VideoCodec"]),
     ],
     targets: [
         .target(name: "MediaCore"),
         .target(name: "PixelBuffers", dependencies: ["MediaCore"]),
+        // FFmpeg's libavcodec and libavutil, from the system.
+        .systemLibrary(
+            name: "CFFmpeg",
+            pkgConfig: "libavcodec",
+            providers: [.apt(["libavcodec-dev", "libavutil-dev"]), .brew(["ffmpeg"])]
+        ),
+        .target(name: "VideoCodec", dependencies: ["MediaCore", "PixelBuffers", "CFFmpeg"]),
         .testTarget(name: "MediaCoreTests", dependencies: ["MediaCore"]),
         .testTarget(name: "PixelBuffersTests", dependencies: ["PixelBuffers"]),
+        .testTarget(name: "VideoCodecTests", dependencies: ["VideoCodec"]),
     ]
 )
